@@ -23,6 +23,7 @@
 
         canvas {
             border: 1px solid var(--text-color);
+            cursor: grab;
         }
 
         textarea {
@@ -35,7 +36,7 @@
         }
 
         input[type="number"] {
-            width: 50px;
+            width: 100px;
         }
 
         input[type="range"] {
@@ -52,20 +53,25 @@
 
     <div onchange="updatePlot()">
 
-        <div style="display: flex; flex-direction: row; gap: 1em; justify-content: space-evenly;">
+        <!-- <div style="display: flex; flex-direction: row; gap: 1em; justify-content: space-evenly;">
             <div>
                 <h4>View</h4>
             </div>
-            <div>
-                x <input type="number" id="minX" value="-10">
-                &ndash; <input type="number" id="maxX" value="10">
-                <br>
-                y <input type="number" id="minY" value="-10">
-                &ndash; <input type="number" id="maxY" value="10">
-                <br>
-                <label for="showField">Slope Field:</label>
-                <input type="checkbox" id="showField" checked>
-            </div>
+        </div> -->
+        <div>
+            <label for="showField">Slope Field:</label>
+            <input type="checkbox" id="showField" checked>
+            <label for="density">Density:</label>
+            <input type="number" id="density" value="15">
+            <label for="normalizeSlope">Normalize:</label>
+            <input type="checkbox" id="normalizeSlope" checked>
+            <br>
+            x <input type="number" id="minX" value="-10">
+            &ndash; <input type="number" id="maxX" value="10">
+            <br>
+            y <input type="number" id="minY" value="-10">
+            &ndash; <input type="number" id="maxY" value="10">
+
         </div>
 
         <hr>
@@ -97,6 +103,77 @@
     </div>
 
     <script>
+
+        function setupMouseNavHandlers() {
+            let isDragging = false
+            let prevX = 0
+            let prevY = 0
+
+            canvas.addEventListener( 'wheel', e => {
+                const xMin = parseFloat( document.getElementById( 'minX' ).value )
+                const xMax = parseFloat( document.getElementById( 'maxX' ).value )
+                const yMin = parseFloat( document.getElementById( 'minY' ).value )
+                const yMax = parseFloat( document.getElementById( 'maxY' ).value )
+
+                const xRange = xMax - xMin
+                const yRange = yMax - yMin
+
+                const scaleX = xRange / canvas.width
+                const scaleY = yRange / canvas.height
+
+                const x = e.offsetX * scaleX + xMin
+                const y = yMax - e.offsetY * scaleY
+
+                const factor = e.deltaY > 0 ? 1.1 : 0.9
+
+                document.getElementById( 'minX' ).value = x - ( x - xMin ) * factor
+                document.getElementById( 'maxX' ).value = x + ( xMax - x ) * factor
+                document.getElementById( 'minY' ).value = y - ( y - yMin ) * factor
+                document.getElementById( 'maxY' ).value = y + ( yMax - y ) * factor
+
+                updatePlot()
+            } )
+
+            canvas.addEventListener( 'mousedown', e => {
+                isDragging = true
+                prevX = e.offsetX
+                prevY = e.offsetY
+            } )
+
+            canvas.addEventListener( 'mouseup', e => {
+                isDragging = false
+            } )
+
+            canvas.addEventListener( 'mousemove', e => {
+                if ( isDragging ) {
+                    const dx = e.offsetX - prevX
+                    const dy = e.offsetY - prevY
+
+                    const xMin = parseFloat( document.getElementById( 'minX' ).value )
+                    const xMax = parseFloat( document.getElementById( 'maxX' ).value )
+                    const yMin = parseFloat( document.getElementById( 'minY' ).value )
+                    const yMax = parseFloat( document.getElementById( 'maxY' ).value )
+
+                    const xRange = xMax - xMin
+                    const yRange = yMax - yMin
+
+                    const scaleX = xRange / canvas.width
+                    const scaleY = yRange / canvas.height
+
+                    document.getElementById( 'minX' ).value = xMin - dx * scaleX
+                    document.getElementById( 'maxX' ).value = xMax - dx * scaleX
+                    document.getElementById( 'minY' ).value = yMin + dy * scaleY
+                    document.getElementById( 'maxY' ).value = yMax + dy * scaleY
+
+                    updatePlot()
+
+                    prevX = e.offsetX
+                    prevY = e.offsetY
+                }
+            } )
+        }
+        setupMouseNavHandlers()
+
         function isLarge( x ) {
             return Math.abs( x ) > 1e6
         }
@@ -174,20 +251,37 @@
             drawCircle( ctx, origin, 2 )
         }
 
-        function plotSlopeField( ctx, g, bounds, width, height ) {
+        function plotSlopeField( ctx, g, bounds, width, height, density = 15 ) {
             const xMin = bounds.xMin
             const xMax = bounds.xMax
             const yMin = bounds.yMin
             const yMax = bounds.yMax
 
-            const xStep = ( xMax - xMin ) / 10
-            const yStep = ( yMax - yMin ) / 10
+            const xStep = ( xMax - xMin ) / density
+            const yStep = ( yMax - yMin ) / density
+
+            const normalizeSlope = document.getElementById( 'normalizeSlope' ).checked
 
             for ( let x = xMin; x <= xMax; x += xStep ) {
                 for ( let y = yMin; y <= yMax; y += yStep ) {
                     const slope = g( x, y )
-                    const p = mapToCanvas( x - 0.1, y - 0.1 * slope, bounds, width, height )
-                    const q = mapToCanvas( x + 0.1, y + 0.1 * slope, bounds, width, height )
+
+                    let dx = 1
+                    let dy = 1 * slope
+                    if ( normalizeSlope ) {
+                        const len = Math.sqrt( dx * dx + dy * dy )
+
+                        const range = 5
+                        const adjLen = Math.tanh( len / range ) * range
+
+                        dx *= adjLen / len
+                        dy *= adjLen / len
+                    }
+                    dx *= 0.1
+                    dy *= 0.1
+
+                    const p = mapToCanvas( x - dx, y - dy, bounds, width, height )
+                    const q = mapToCanvas( x + dx, y + dy, bounds, width, height )
                     ctx.beginPath()
                     ctx.moveTo( p.x, p.y )
                     ctx.lineTo( q.x, q.y )
@@ -254,7 +348,7 @@
             if ( document.getElementById( 'showField' ).checked ) {
                 ctx.lineWidth = 2
                 ctx.strokeStyle = 'blue'
-                plotSlopeField( ctx, G, bounds, W, H )
+                plotSlopeField( ctx, G, bounds, W, H, parseInt( document.getElementById( 'density' ).value ) )
             }
 
             ctx.strokeStyle = 'red'
