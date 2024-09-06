@@ -50,7 +50,7 @@
 
     <canvas id="canvas"></canvas>
 
-    <div onchange="onInputChange()">
+    <div onchange="updatePlot()">
 
         <div style="display: flex; flex-direction: row; gap: 1em; justify-content: space-evenly;">
             <div>
@@ -89,7 +89,7 @@
 
         <!-- k slider -->
         <label for="k">k:</label>
-        <input type="range" id="k" min="0" max="1" value="0.9" step="0.01" oninput="onInputChange()">
+        <input type="range" id="k" min="0" max="1" value="0.9" step="0.01" oninput="updatePlot()">
 
         <br>
 
@@ -97,15 +97,6 @@
     </div>
 
     <script>
-        // Function to set up the canvas
-        function setupCanvas( width, height ) {
-            canvas.width = width
-            canvas.height = height
-            return canvas.getContext( '2d' )
-        }
-
-        const ctx = setupCanvas( 800, 600 )
-
         function isLarge( x ) {
             return Math.abs( x ) > 1e6
         }
@@ -140,27 +131,6 @@
             return points
         }
 
-        // Function to plot the points
-        function plotPoints( ctx, points, width, height ) {
-            ctx.beginPath()
-            ctx.moveTo( points[ 0 ].x, points[ 0 ].y )
-            points.forEach( point => {
-                ctx.lineTo( point.x, point.y )
-            } )
-            ctx.strokeStyle = 'red'
-            ctx.lineWidth = 2
-            ctx.stroke()
-        }
-
-        function getViewBounds() {
-            const xMin = parseFloat( document.getElementById( 'minX' ).value )
-            const xMax = parseFloat( document.getElementById( 'maxX' ).value )
-            const yMin = parseFloat( document.getElementById( 'minY' ).value )
-            const yMax = parseFloat( document.getElementById( 'maxY' ).value )
-
-            return { xMin, xMax, yMin, yMax }
-        }
-
         function mapToCanvas( x, y, bounds, width, height ) {
             const x0 = bounds.xMin
             const x1 = bounds.xMax
@@ -173,34 +143,13 @@
             return { x: xCanvas, y: yCanvas }
         }
 
-        function plotGrid( bounds, width, height ) {
-            const xMin = bounds.xMin
-            const xMax = bounds.xMax
-            const yMin = bounds.yMin
-            const yMax = bounds.yMax
-
-            const xStep = ( xMax - xMin ) / 10
-            const yStep = ( yMax - yMin ) / 10
-
-            ctx.strokeStyle = 'black'
-
-            for ( let x = xMin; x <= xMax; x += xStep ) {
-                const xCanvas = mapToCanvas( x, 0, bounds, width, height ).x
-                ctx.beginPath()
-                ctx.moveTo( xCanvas, 0 )
-                ctx.lineTo( xCanvas, height )
-                ctx.lineWidth = ( x == 0 ) ? 2 : 1
-                ctx.stroke()
-            }
-
-            for ( let y = yMin; y <= yMax; y += yStep ) {
-                const yCanvas = mapToCanvas( 0, y, bounds, width, height ).y
-                ctx.beginPath()
-                ctx.moveTo( 0, yCanvas )
-                ctx.lineTo( width, yCanvas )
-                ctx.lineWidth = ( y == 0 ) ? 2 : 1
-                ctx.stroke()
-            }
+        function plotPoints( ctx, points, width, height ) {
+            ctx.beginPath()
+            ctx.moveTo( points[ 0 ].x, points[ 0 ].y )
+            points.forEach( point => {
+                ctx.lineTo( point.x, point.y )
+            } )
+            ctx.stroke()
         }
 
         function drawCircle( ctx, p, r ) {
@@ -209,13 +158,23 @@
             ctx.fill()
         }
 
-        function setStepsFromSlider() {
-            const steps = parseInt( document.getElementById( '_steps' ).value )
-            document.getElementById( 'steps' ).value = steps
-            onInputChange()
+        function drawAxes( ctx, bounds, width, height ) {
+            const origin = mapToCanvas( 0, 0, bounds, width, height )
+
+            ctx.beginPath()
+            ctx.moveTo( origin.x, 0 )
+            ctx.lineTo( origin.x, height )
+            ctx.stroke()
+
+            ctx.beginPath()
+            ctx.moveTo( 0, origin.y )
+            ctx.lineTo( width, origin.y )
+            ctx.stroke()
+
+            drawCircle( ctx, origin, 2 )
         }
 
-        function plotSlopeField( g, bounds, width, height ) {
+        function plotSlopeField( ctx, g, bounds, width, height ) {
             const xMin = bounds.xMin
             const xMax = bounds.xMax
             const yMin = bounds.yMin
@@ -238,43 +197,68 @@
 
         }
 
-        function onInputChange() {
+        function setStepsFromSlider() {
+            const steps = parseInt( document.getElementById( '_steps' ).value )
+            document.getElementById( 'steps' ).value = steps
+            updatePlot()
+        }
+
+        function updatePlot() {
+            const W = 800
+            const H = 600
+
+            canvas.width = W
+            canvas.height = H
+
+            const ctx = canvas.getContext( '2d' )
+
             const x0 = parseFloat( document.getElementById( 'x0' ).value )
             const y0 = parseFloat( document.getElementById( 'y0' ).value )
             const h = parseFloat( document.getElementById( 'h' ).value )
             const steps = parseInt( document.getElementById( 'steps' ).value )
             const k = parseFloat( document.getElementById( 'k' ).value )
 
-            const prolog = `
-                const k = ${ k };
-                ${ Object.getOwnPropertyNames( Math ).map( key => `const ${ key } = Math.${ key };` ).join( '\n' ) }
-            `
-            let code = document.getElementById( 'G' ).value
-            if ( code.split( "\n" ).length == 1 && !code.includes( "return" ) )
-                code = `return ${ code }`
-            const G = new Function( 'x', 'y', prolog + code )
+            const G = ( () => {
+                const prolog = `
+                    const k = ${ k };
+                    ${ Object.getOwnPropertyNames( Math ).map( key => `const ${ key } = Math.${ key };` ).join( '\n' ) }
+                `
+                let code = document.getElementById( 'G' ).value
+                if ( code.split( "\n" ).length == 1 && !code.includes( "return" ) )
+                    code = `return ${ code }`
+                return new Function( 'x', 'y', prolog + code )
+            } )()
 
             const points = eulerMethod( G, x0, y0, h, steps )
-            const bounds = getViewBounds()
+
+            const bounds = ( () => {
+                const xMin = parseFloat( document.getElementById( 'minX' ).value )
+                const xMax = parseFloat( document.getElementById( 'maxX' ).value )
+                const yMin = parseFloat( document.getElementById( 'minY' ).value )
+                const yMax = parseFloat( document.getElementById( 'maxY' ).value )
+                return { xMin, xMax, yMin, yMax }
+            } )()
 
             // Update slider value
             document.getElementById( '_steps' ).value = steps
-
-            const W = ctx.canvas.width
-            const H = ctx.canvas.height
 
             const canvasPoints = points.map( point => mapToCanvas( point.x, point.y, bounds, W, H ) )
 
             ctx.clearRect( 0, 0, W, H )
 
-            plotGrid( bounds, W, H )
+            ctx.strokeStyle = 'black'
+            ctx.lineWidth = 1
+            ctx.fillStyle = 'black'
+            drawAxes( ctx, bounds, W, H )
 
             if ( document.getElementById( 'showField' ).checked ) {
                 ctx.lineWidth = 2
                 ctx.strokeStyle = 'blue'
-                plotSlopeField( G, bounds, W, H )
+                plotSlopeField( ctx, G, bounds, W, H )
             }
 
+            ctx.strokeStyle = 'red'
+            ctx.lineWidth = 2
             plotPoints( ctx, canvasPoints, W, H )
 
             ctx.fillStyle = 'red'
@@ -282,7 +266,7 @@
             drawCircle( ctx, canvasPoints[ canvasPoints.length - 1 ], 3 )
         }
 
-        onInputChange()
+        updatePlot()
 
     </script>
 </body>
