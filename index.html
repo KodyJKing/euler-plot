@@ -104,55 +104,93 @@
 
     <script>
 
+        function getBounds() {
+            return {
+                xMin: parseFloat( document.getElementById( 'minX' ).value ),
+                xMax: parseFloat( document.getElementById( 'maxX' ).value ),
+                yMin: parseFloat( document.getElementById( 'minY' ).value ),
+                yMax: parseFloat( document.getElementById( 'maxY' ).value )
+            }
+        }
+
+        function setBounds( bounds ) {
+            document.getElementById( 'minX' ).value = bounds.xMin
+            document.getElementById( 'maxX' ).value = bounds.xMax
+            document.getElementById( 'minY' ).value = bounds.yMin
+            document.getElementById( 'maxY' ).value = bounds.yMax
+        }
+
+        function screenToPlotCoords( x, y ) {
+            const { xMin, xMax, yMin, yMax } = getBounds()
+
+            const xRange = xMax - xMin
+            const yRange = yMax - yMin
+
+            const scaleX = xRange / canvas.width
+            const scaleY = yRange / canvas.height
+
+            const xPlot = x * scaleX + xMin
+            const yPlot = yMax - y * scaleY
+
+            return { x: xPlot, y: yPlot }
+        }
+
         function setupMouseNavHandlers() {
             let isDragging = false
             let prevX = 0
             let prevY = 0
+            let anchor = true
 
             canvas.addEventListener( 'wheel', e => {
-                const xMin = parseFloat( document.getElementById( 'minX' ).value )
-                const xMax = parseFloat( document.getElementById( 'maxX' ).value )
-                const yMin = parseFloat( document.getElementById( 'minY' ).value )
-                const yMax = parseFloat( document.getElementById( 'maxY' ).value )
-
-                const xRange = xMax - xMin
-                const yRange = yMax - yMin
-
-                const scaleX = xRange / canvas.width
-                const scaleY = yRange / canvas.height
-
-                const x = e.offsetX * scaleX + xMin
-                const y = yMax - e.offsetY * scaleY
+                const { xMin, xMax, yMin, yMax } = getBounds()
+                const { x, y } = screenToPlotCoords( e.offsetX, e.offsetY )
 
                 const factor = e.deltaY > 0 ? 1.1 : 0.9
 
-                document.getElementById( 'minX' ).value = x - ( x - xMin ) * factor
-                document.getElementById( 'maxX' ).value = x + ( xMax - x ) * factor
-                document.getElementById( 'minY' ).value = y - ( y - yMin ) * factor
-                document.getElementById( 'maxY' ).value = y + ( yMax - y ) * factor
+                setBounds( {
+                    xMin: x + ( xMin - x ) * factor,
+                    xMax: x + ( xMax - x ) * factor,
+                    yMin: y + ( yMin - y ) * factor,
+                    yMax: y + ( yMax - y ) * factor
+                } )
 
                 updatePlot()
             } )
 
-            canvas.addEventListener( 'mousedown', e => {
+            canvas.addEventListener( 'pointerdown', e => {
+                if ( e.button == 2 )
+                    anchor = !anchor
+
+                if ( e.button != 0 )
+                    return
+
                 isDragging = true
                 prevX = e.offsetX
                 prevY = e.offsetY
+                canvas.setPointerCapture( e.pointerId )
             } )
 
-            canvas.addEventListener( 'mouseup', e => {
+            canvas.addEventListener( 'pointerup', e => {
+                if ( e.button != 0 )
+                    return
+
                 isDragging = false
+                canvas.releasePointerCapture( e.pointerId )
             } )
 
-            canvas.addEventListener( 'mousemove', e => {
+            canvas.addEventListener( 'contextmenu', e => {
+                if ( e.shiftKey )
+                    return
+                e.preventDefault()
+                return false
+            } )
+
+            canvas.addEventListener( 'pointermove', e => {
                 if ( isDragging ) {
                     const dx = e.offsetX - prevX
                     const dy = e.offsetY - prevY
 
-                    const xMin = parseFloat( document.getElementById( 'minX' ).value )
-                    const xMax = parseFloat( document.getElementById( 'maxX' ).value )
-                    const yMin = parseFloat( document.getElementById( 'minY' ).value )
-                    const yMax = parseFloat( document.getElementById( 'maxY' ).value )
+                    const { xMin, xMax, yMin, yMax } = getBounds()
 
                     const xRange = xMax - xMin
                     const yRange = yMax - yMin
@@ -160,17 +198,31 @@
                     const scaleX = xRange / canvas.width
                     const scaleY = yRange / canvas.height
 
-                    document.getElementById( 'minX' ).value = xMin - dx * scaleX
-                    document.getElementById( 'maxX' ).value = xMax - dx * scaleX
-                    document.getElementById( 'minY' ).value = yMin + dy * scaleY
-                    document.getElementById( 'maxY' ).value = yMax + dy * scaleY
+                    setBounds( {
+                        xMin: xMin - dx * scaleX,
+                        xMax: xMax - dx * scaleX,
+                        yMin: yMin + dy * scaleY,
+                        yMax: yMax + dy * scaleY
+                    } )
 
                     updatePlot()
 
                     prevX = e.offsetX
                     prevY = e.offsetY
+                } else if ( !anchor ) {
+                    const { x, y } = screenToPlotCoords( e.offsetX, e.offsetY )
+                    document.getElementById( 'x0' ).value = x
+                    document.getElementById( 'y0' ).value = y
+                    updatePlot()
                 }
             } )
+
+            canvas.addEventListener( 'click', e => {
+                if ( e.button == 2 ) {
+                    anchor = !anchor
+                }
+            } )
+
         }
         setupMouseNavHandlers()
 
